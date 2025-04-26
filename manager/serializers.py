@@ -15,3 +15,8 @@ class DocumentSerializer(serializers.ModelSerializer):
         model = Document
         fields = ('name', 'folder', 'file', 'id')
 
+
+class PermissionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Permission
+        fields = ('user', 'document', 'folder', 'level', 'id')

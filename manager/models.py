@@ -1,11 +1,14 @@
 import os
+import shutil
 
 from django.db import models
 from django.contrib.auth import get_user_model
 from uuid import uuid4
 
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
+from DocManager.settings import MEDIA_ROOT
 from manager.helpers import get_folder_path
 
 User = get_user_model()
@@ -28,6 +31,45 @@ class Folder(models.Model):
         ordering = ['name']
         verbose_name = 'Folder'
         verbose_name_plural = 'Folders'
+
+    def save(self, *args, **kwargs):
+        new_path = get_folder_path(self)
+        full_new_path = os.path.join(MEDIA_ROOT, self.owner.username, new_path)
+        # Check if the folder already exists, i.e., is being updated
+        try:
+            old = Folder.objects.get(pk=self.pk)
+            old_path = os.path.join(MEDIA_ROOT, self.owner.username, old.path)
+            if old.path != new_path:
+                # Rename the directory
+                if os.path.exists(old_path):
+                    os.makedirs(os.path.dirname(full_new_path), exist_ok=True)
+                    shutil.move(old_path, full_new_path)
+                else:
+                    os.makedirs(full_new_path, exist_ok=True)
+
+                self.path = new_path
+                super().save(*args, **kwargs)
+                # Update paths of all child folders
+                for child in Folder.objects.filter(parent=old):
+                    relative_subpath = child.path[len(old.path) + 1:]  # exclude "oldpath/"
+                    child.path = os.path.join(new_path, relative_subpath)
+                    child.save()
+
+        except Folder.DoesNotExist:
+            os.makedirs(full_new_path, exist_ok=True)
+
+        self.path = new_path
+        super().save(*args, **kwargs)
+
+    def delete(self, using=None, keep_parents=False):
+        if os.path.exists(os.path.join(MEDIA_ROOT, self.owner.username, self.path)):
+            shutil.rmtree((os.path.join(MEDIA_ROOT, self.owner.username, self.path)))
+
+        for child in Folder.objects.filter(parent=self):
+            child.delete()
+
+        super().delete(using, keep_parents)
+
 
 
 
@@ -52,14 +94,11 @@ def validate_file_extension(value):
         raise ValueError('Unsupported file extension.')
 
 class Document(models.Model):
-
-
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     name = models.CharField(max_length=100, default="New Document")
     folder = models.ForeignKey(Folder, on_delete=models.CASCADE, null=True, blank=True)
     file = models.FileField(upload_to=document_upload_path, validators=[validate_file_extension])
     owner = models.ForeignKey(User, on_delete=models.CASCADE)
-    # type = models.CharField(max_length=100, choices=TYPE, default="docx")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -90,6 +129,32 @@ class Permission(models.Model):
     def __str__(self):
         target = self.document.name if self.document else (self.folder.name if self.folder else "Unknown")
         return f"{self.user.username} - {target} - {self.level}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if self.folder:
+            for folder in Folder.objects.filter(parent=self.folder):
+                Permission.objects.update_or_create(
+                    user=self.user,
+                    folder=folder,
+                    level=self.level
+                )
+
+            for document in Document.objects.filter(folder=self.folder):
+                Permission.objects.update_or_create(
+                    user=self.user,
+                    document=document,
+                    level=self.level
+                )
+
+    def delete(self, using=None, keep_parents=False):
+        super().delete(using, keep_parents)
+        if self.folder:
+            for folder in Folder.objects.filter(parent=self.folder):
+                Permission.objects.filter(user=self.user, folder=folder).delete()
+
+            for document in Document.objects.filter(folder=self.folder):
+                Permission.objects.filter(user=self.user, document=document).delete()
 
 class ShareableLink(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
