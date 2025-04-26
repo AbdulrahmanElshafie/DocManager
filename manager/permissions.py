@@ -41,15 +41,16 @@ class IsOwnerOrHasPermission(BasePermission):
         method = request.method
 
         """
-        get
-        if request is user is 
-        - object owner
-        - superuser
-        - permission user
+        Permissions are granted based on the following conditions:
         
-        create/update/delete
-        - obj owner 
-        - superuser
+        For GET/HEAD requests:
+        - The user is the object owner
+        - The user is a superuser
+        - The user has explicit permission
+        
+        For create/update/delete requests:
+        - The user is the object owner
+        - The user is a superuser
         """
 
         if request.user.is_superuser:
