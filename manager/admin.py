@@ -5,7 +5,10 @@ from .models import *
 
 @admin.register(Folder)
 class FolderAdmin(admin.ModelAdmin):
-    pass
+    def get_readonly_fields(self, request, obj=None):
+        if obj:
+            return 'id', 'owner', 'created_at', 'updated_at', 'path'
+        return ('path', )
 
 
 @admin.register(Document)

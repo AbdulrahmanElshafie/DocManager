@@ -19,7 +19,7 @@ def has_permission(user, document=None, folder=None, required_level='read'):
     )
 
 
-class HasFolderPermission(BasePermission):
+class HasFolderDocumentPermission(BasePermission):
     def has_object_permission(self, request, view, obj):
         method = request.method
 
@@ -32,7 +32,36 @@ class HasFolderPermission(BasePermission):
         else:
             return False
 
-        if type(obj) == Document:
+        if isinstance(obj, Document):
             return has_permission(request.user, document=obj, required_level=required)
         return has_permission(request.user, folder=obj, required_level=required)
 
+class IsOwnerOrHasPermission(BasePermission):
+    def has_object_permission(self, request, view, obj):
+        method = request.method
+
+        """
+        get
+        if request is user is 
+        - object owner
+        - superuser
+        - permission user
+        
+        create/update/delete
+        - obj owner 
+        - superuser
+        """
+
+        if request.user.is_superuser:
+            return True
+
+        if request.user == obj.user and method in ['GET', 'HEAD']:
+            return True
+
+        if obj.document and obj.document.owner == request.user:
+            return True
+
+        if obj.folder and obj.folder.owner == request.user:
+            return True
+
+        return False
