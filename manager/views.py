@@ -96,22 +96,6 @@ class RevisionView(ModelViewSet):
     def update(self, request, *args, **kwargs):
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
-class GetRevisionDocumentView(APIView):
-    permission_classes = [IsAuthenticated, HasFolderDocumentPermission]
-
-    def get(self, request, *args, **kwargs):
-        doc = Document.objects.get(pk=kwargs['pk'])
-        versions = Version.objects.get_for_object(doc)
-
-        # Filter revisions where the file changed
-        revision_objs = [
-            version.object
-            for version in versions
-            if 'File' in version.revision.get_comment()
-        ]
-
-        serializer = DocumentSerializer(revision_objs, many=True)
-        return Response(serializer.data)
 
 class PermissionView(ModelViewSet):
     queryset = Permission.objects.all()
