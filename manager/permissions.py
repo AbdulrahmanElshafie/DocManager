@@ -48,7 +48,8 @@ class HasFolderDocumentPermission(BasePermission):
         else:
             return False
 
-        folder = Folder.objects.filter(id=request.data.get('folder')).first()
+        folder_id = request.query_params.get('folder') if request.method == 'GET' else request.data.get('folder')
+        folder = Folder.objects.filter(id=folder_id).first()
         if folder:
             return has_permission(request.user, required_level=required, folder=folder)
 

@@ -8,7 +8,9 @@ db.sqlite3
 **/__pycache__
 **/.DS_Store
 .idea
-static/**
+static/uploads/
+static/tmp/
+static/*.log
 media/**
 static/uploads
 backup_test

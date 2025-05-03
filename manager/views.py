@@ -1,5 +1,6 @@
 from django.db.models import Q
 from django.http import FileResponse
+from django.shortcuts import get_object_or_404
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -65,16 +66,16 @@ class RevisionView(ModelViewSet):
         )
 
     def create(self, request, *args, **kwargs):
-        document = self.get_document(request.data.get('doc_id'))
+        document = self.get_document(request.query_params.get('doc_id'))
         versions = Version.objects.get_for_object(document)
-        version = get_object_or_404(versions, pk=request.data.get('version_id'))
+        version = get_object_or_404(versions, pk=request.query_params.get('version_id'))
         version.revision.revert()
 
         serializer = self.get_serializer(version.object)
         return Response(serializer.data)
 
     def list(self, request, *args, **kwargs):
-        document = self.get_document(request.data.get('doc_id'))
+        document = self.get_document(request.query_params.get('doc_id'))
         versions = Version.objects.get_for_object(document)
 
         docs = [version.object for version in versions]
@@ -82,9 +83,9 @@ class RevisionView(ModelViewSet):
         return Response(serializer.data)
 
     def get(self, request, *args, **kwargs):
-        document = self.get_document(request.data.get('doc_id'))
+        document = self.get_document(request.query_params.get('doc_id'))
         versions = Version.objects.get_for_object(document)
-        version = get_object_or_404(versions, pk=request.data.get('version_id'))
+        version = get_object_or_404(versions, pk=request.query_params.get('version_id'))
 
         serializer = self.get_serializer(version.object)
         return Response(serializer.data)
