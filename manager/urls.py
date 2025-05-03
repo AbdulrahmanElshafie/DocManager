@@ -15,6 +15,16 @@ urlpatterns = [
     path('document/<str:pk>/', DocumentView.as_view(
         {"get": "retrieve", "delete": "destroy",  "put": "update"}
     )),
+    path('document/revision/<str:doc_id>/', DocumentView.as_view(
+        {"get": "list"}
+    )),
+    path('document/revision/<str:doc_id>/<str:version_id>/', DocumentView.as_view(
+        {"get": "retrieve", "post": "create"}
+    )),
+    path(
+        'document/revision/<str:pk>/',
+        GetRevisionDocumentView.as_view()
+    ),
     path('permission/', PermissionView.as_view(
         {"get": "list", "post": "create"}
     )),

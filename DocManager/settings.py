@@ -49,8 +49,9 @@ INSTALLED_APPS = [
 
     'drf_yasg',
 
-    "UserAuth",
-    'manager'
+    'UserAuth',
+    'manager',
+    'reversion', # for tracking and version control
 ]
 
 MIDDLEWARE = [

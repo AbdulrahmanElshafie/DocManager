@@ -4,16 +4,14 @@ import shutil
 from django.db import models
 from django.contrib.auth import get_user_model
 from uuid import uuid4
-
-from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from DocManager.settings import MEDIA_ROOT
-from manager.helpers import get_folder_path
+import reversion
 
 User = get_user_model()
 
-
+@reversion.register(ignore_duplicates=True)
 class Folder(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     name = models.CharField(max_length=100, default="New Folder")
@@ -21,8 +19,6 @@ class Folder(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    path = models.TextField(null=True, blank=True)
-
 
     def __str__(self):
         return self.name
@@ -32,54 +28,16 @@ class Folder(models.Model):
         verbose_name = 'Folder'
         verbose_name_plural = 'Folders'
 
-    def save(self, *args, **kwargs):
-        new_path = get_folder_path(self)
-        full_new_path = os.path.join(MEDIA_ROOT, self.owner.username, new_path)
-        # Check if the folder already exists, i.e., is being updated
-        try:
-            old = Folder.objects.get(pk=self.pk)
-            old_path = os.path.join(MEDIA_ROOT, self.owner.username, old.path)
-            if old.path != new_path:
-                # Rename the directory
-                if os.path.exists(old_path):
-                    os.makedirs(os.path.dirname(full_new_path), exist_ok=True)
-                    shutil.move(old_path, full_new_path)
-                else:
-                    os.makedirs(full_new_path, exist_ok=True)
-
-                self.path = new_path
-                super().save(*args, **kwargs)
-                # Update paths of all child folders
-                for child in Folder.objects.filter(parent=old):
-                    relative_subpath = child.path[len(old.path) + 1:]  # exclude "oldpath/"
-                    child.path = os.path.join(new_path, relative_subpath)
-                    child.save()
-
-        except Folder.DoesNotExist:
-            os.makedirs(full_new_path, exist_ok=True)
-
-        self.path = new_path
-        super().save(*args, **kwargs)
-
-    def delete(self, using=None, keep_parents=False):
-        if os.path.exists(os.path.join(MEDIA_ROOT, self.owner.username, self.path)):
-            shutil.rmtree((os.path.join(MEDIA_ROOT, self.owner.username, self.path)))
-
-        for child in Folder.objects.filter(parent=self):
-            child.delete()
-
-        super().delete(using, keep_parents)
-
 
 
 
 def document_upload_path(instance, filename):
-    username = instance.owner.username
-    folder_path = get_folder_path(instance.folder) if instance.folder else ""
+    # Always use the document ID as the folder and file name
+    return os.path.join(
+        str(instance.id),  # Folder name is the document ID
+        f"{instance.id}{os.path.splitext(filename)[1]}"  # File name is also the document ID with original extension
+    )
 
-    if folder_path:
-        return os.path.join(username, folder_path, filename)
-    return os.path.join(username, filename)
 
 TYPE = (
     ("csv", "CSV"),
@@ -93,11 +51,12 @@ def validate_file_extension(value):
     if not ext.lower() in valid_extensions:
         raise ValueError('Unsupported file extension.')
 
+@reversion.register(ignore_duplicates=True)
 class Document(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     name = models.CharField(max_length=100, default="New Document")
     folder = models.ForeignKey(Folder, on_delete=models.CASCADE, null=True, blank=True)
-    file = models.FileField(upload_to=document_upload_path, validators=[validate_file_extension])
+    file = models.FileField(upload_to=document_upload_path, validators=[validate_file_extension], max_length=500)
     owner = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -109,6 +68,12 @@ class Document(models.Model):
 
     def __str__(self):
         return self.name
+
+    def delete(self, using=None, keep_parents=False):
+        if os.path.exists(os.path.join(MEDIA_ROOT, f"{self.id}")):
+            shutil.rmtree(os.path.join(MEDIA_ROOT, f"{self.id}"))
+
+        super().delete(using, keep_parents)
 
 LEVEL_CHOICES = (
     ('read', 'Read'),
@@ -179,24 +144,3 @@ class ShareableLink(models.Model):
 
     def __str__(self):
         return f"Shared link for {self.document.name}"
-
-
-# class PrintingSize(models.Model):
-#     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
-#     name = models.CharField(max_length=100)
-#     height = models.IntegerField(verbose_name="Height in CM")
-#     width = models.IntegerField(verbose_name="Width in CM")
-#
-#     def __str__(self):
-#         return self.name
-#
-#
-# class DocumentTemplate(models.Model):
-#     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
-#     name = models.CharField(max_length=100)
-#     printing_size = models.ForeignKey(PrintingSize, on_delete=models.CASCADE)
-#     file = models.FileField(upload_to="templates/")
-#     type = models.CharField(max_length=100, choices=TYPE, default="docx")
-#
-#     def __str__(self):
-#         return self.name
