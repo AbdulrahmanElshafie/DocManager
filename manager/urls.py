@@ -1,7 +1,6 @@
 from django.urls import path
 from .views import *
 
-
 urlpatterns = [
     path('folder/', FolderView.as_view(
         {"get": "list", "post": "create"}
@@ -13,7 +12,13 @@ urlpatterns = [
         {"get": "list", "post": "create"}
     )),
     path('document/<str:pk>/', DocumentView.as_view(
-        {"get": "retrieve", "delete": "destroy",  "put": "update"}
+        {"get": "retrieve", "delete": "destroy", "put": "update"}
+    )),
+    path('document/revision/<str:doc_id>/', RevisionView.as_view(
+        {"get": "list"}
+    )),
+    path('document/revision/<str:doc_id>/<str:version_id>/', RevisionView.as_view(
+        {"get": "retrieve", "post": "create"}
     )),
     path('permission/', PermissionView.as_view(
         {"get": "list", "post": "create"}

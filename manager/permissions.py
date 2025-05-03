@@ -36,6 +36,25 @@ class HasFolderDocumentPermission(BasePermission):
             return has_permission(request.user, document=obj, required_level=required)
         return has_permission(request.user, folder=obj, required_level=required)
 
+    def has_permission(self, request, view):
+        method = request.method
+
+        if method in ['GET', 'HEAD']:
+            required = 'read'
+        elif method in ['POST', 'PUT', 'PATCH']:
+            required = 'write'
+        elif method == 'DELETE':
+            required = 'delete'
+        else:
+            return False
+
+        folder_id = request.query_params.get('folder') if request.method == 'GET' else request.data.get('folder')
+        folder = Folder.objects.filter(id=folder_id).first()
+        if folder:
+            return has_permission(request.user, required_level=required, folder=folder)
+
+        return True
+
 class IsOwnerOrHasPermission(BasePermission):
     def has_object_permission(self, request, view, obj):
         method = request.method
