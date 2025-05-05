@@ -113,13 +113,14 @@ class Permission(models.Model):
                 )
 
     def delete(self, using=None, keep_parents=False):
-        super().delete(using, keep_parents)
         if self.folder:
             for folder in Folder.objects.filter(parent=self.folder):
                 Permission.objects.filter(user=self.user, folder=folder).delete()
 
             for document in Document.objects.filter(folder=self.folder):
                 Permission.objects.filter(user=self.user, document=document).delete()
+
+        super().delete(using, keep_parents)
 
 class ShareableLink(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)

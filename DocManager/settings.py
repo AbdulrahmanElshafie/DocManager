@@ -52,6 +52,8 @@ INSTALLED_APPS = [
     'UserAuth',
     'manager',
     'reversion', # for tracking and version control
+    'backups_management',
+    'workflows',
 ]
 
 MIDDLEWARE = [
@@ -162,3 +164,12 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
+# SMTP Email Configuration
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.gmail.com"  # Change based on your provider
+EMAIL_PORT = 465  # Use 465 for SSL
+EMAIL_USE_SSL = True  # Use SSL if port is 465
+EMAIL_HOST_USER = env("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD")  # Use an App Password for security
+
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
