@@ -23,11 +23,3 @@ class PermissionAdmin(admin.ModelAdmin):
 @admin.register(ShareableLink)
 class ShareableLinkAdmin(admin.ModelAdmin):
     pass
-
-# @admin.register(DocumentTemplate)
-# class DocumentTemplateAdmin(admin.ModelAdmin):
-#     pass
-#
-# @admin.register(PrintingSize)
-# class PrintingSizeAdmin(admin.ModelAdmin):
-#     pass
