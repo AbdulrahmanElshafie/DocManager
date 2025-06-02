@@ -1,5 +1,5 @@
 from django.db.models import Q
-from django.http import FileResponse
+from django.http import FileResponse, JsonResponse, HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -7,10 +7,14 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
+from rest_framework.decorators import action
 from reversion.models import Version
+import os
+import tempfile
 
 from .permissions import *
 from .serializers import *
+from .document_converter import DocumentConverter
 from reversion.views import RevisionMixin
 
 class FolderView(ModelViewSet, RevisionMixin):
@@ -47,6 +51,89 @@ class DocumentView(ModelViewSet, RevisionMixin):
             Q(id__in=Permission.objects.filter(user=request.user, document__isnull=False).values('document'))).distinct()
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['get'])
+    def content(self, request, pk=None):
+        """Get document content as HTML or Markdown for editing"""
+        document = self.get_object()
+        
+        if not document.file:
+            return Response({'error': 'No file associated with document'}, 
+                          status=status.HTTP_404_NOT_FOUND)
+        
+        file_path = document.file.path
+        if not os.path.exists(file_path):
+            return Response({'error': 'File not found'}, 
+                          status=status.HTTP_404_NOT_FOUND)
+        
+        # Get the requested format (default to html)
+        format_type = request.query_params.get('format', 'html').lower()
+        
+        try:
+            if document.file.name.endswith('.docx'):
+                html_content, markdown_content = DocumentConverter.convert_for_editor(file_path)
+                
+                if format_type == 'markdown':
+                    return Response({
+                        'content': markdown_content,
+                        'format': 'markdown',
+                        'original_format': 'docx'
+                    })
+                else:
+                    return Response({
+                        'content': html_content,
+                        'format': 'html',
+                        'original_format': 'docx'
+                    })
+            else:
+                # For non-DOCX files, return raw content
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                return Response({
+                    'content': content,
+                    'format': 'raw',
+                    'original_format': document.file.name.split('.')[-1].lower()
+                })
+                
+        except Exception as e:
+            return Response({'error': f'Error reading document: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['put'])
+    def update_content(self, request, pk=None):
+        """Update document content from editor"""
+        document = self.get_object()
+        
+        content = request.data.get('content', '')
+        content_type = request.data.get('content_type', 'html')
+        
+        if not document.file:
+            return Response({'error': 'No file associated with document'}, 
+                          status=status.HTTP_404_NOT_FOUND)
+        
+        file_path = document.file.path
+        
+        try:
+            if document.file.name.endswith('.docx'):
+                # Convert content back to DOCX
+                success = DocumentConverter.convert_from_editor(content, content_type, file_path)
+                if not success:
+                    return Response({'error': 'Failed to convert content to DOCX'}, 
+                                  status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            else:
+                # For other file types, save content directly
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+            
+            # Update the document's updated_at timestamp
+            document.save()
+            
+            return Response({'message': 'Document updated successfully'})
+            
+        except Exception as e:
+            return Response({'error': f'Error updating document: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class RevisionView(ModelViewSet):
@@ -111,7 +198,11 @@ class PermissionView(ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-class ShareableLinkView(APIView):
+class ShareableLinkView(ModelViewSet):
+    queryset = ShareableLink.objects.all()
+    serializer_class = ShareableLinkSerializer
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, token):
         link = get_object_or_404(ShareableLink, token=token, is_active=True, expires_at__gte=timezone.now())
 

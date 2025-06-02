@@ -14,6 +14,9 @@ urlpatterns = [
     path('document/<str:pk>/', DocumentView.as_view(
         {"get": "retrieve", "delete": "destroy", "put": "update"}
     )),
+    path('document/<str:pk>/content/', DocumentView.as_view(
+        {"get": "content", "put": "update_content"}
+    )),
     path('document/revision/<str:doc_id>/', RevisionView.as_view(
         {"get": "list"}
     )),
@@ -27,6 +30,12 @@ urlpatterns = [
         {"get": "retrieve", "delete": "destroy", "put": "update"}
     )),
     path('share/<str:token>/', ShareableLinkView.as_view(
-
-    ))
+        {"get": "retrieve"}
+    )),
+    path('share/', ShareableLinkView.as_view(
+        {"post": "create", "get": "list"}
+    )),
+    path('share/<str:pk>/', ShareableLinkView.as_view(
+        {"delete": "destroy", "put": "update"}
+    )),
 ]
