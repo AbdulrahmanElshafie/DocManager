@@ -7,8 +7,7 @@ from .models import *
 class FolderAdmin(VersionAdmin):
     def get_readonly_fields(self, request, obj=None):
         if obj:
-            return 'id', 'owner', 'created_at', 'updated_at'
-        return ('path', )
+            return ('id', 'owner', 'created_at', 'updated_at')
 
     list_display = ('name', 'parent', 'owner', 'created_at', 'updated_at')
 
