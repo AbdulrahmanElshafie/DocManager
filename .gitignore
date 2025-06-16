@@ -15,3 +15,4 @@ apidoc.json
 static/**
 Pipfile
 Pipfile.lock
+media/
