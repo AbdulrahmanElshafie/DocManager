@@ -1,7 +1,7 @@
 import os
 import tempfile
 from io import BytesIO
-from docx import Document as DocxDocument
+from docx import Document
 from docx.shared import Inches
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 import markdown2
@@ -18,7 +18,7 @@ class DocumentConverter:
     def docx_to_html(docx_file_path: str) -> str:
         """Convert a DOCX file to HTML format"""
         try:
-            doc = DocxDocument(docx_file_path)
+            doc = Document(docx_file_path)
             html_content = ['<html><body>']
             
             for paragraph in doc.paragraphs:
@@ -78,7 +78,7 @@ class DocumentConverter:
     def html_to_docx(html_content: str, output_path: str) -> bool:
         """Convert HTML content to DOCX format"""
         try:
-            doc = DocxDocument()
+            doc = Document()
             soup = BeautifulSoup(html_content, 'html.parser')
             
             # Remove script and style tags
@@ -111,7 +111,7 @@ class DocumentConverter:
             print(f"Error converting HTML to DOCX: {e}")
             # Create a simple document with error message
             try:
-                doc = DocxDocument()
+                doc = Document()
                 doc.add_paragraph(f"Error converting document: {str(e)}")
                 doc.save(output_path)
                 return True
@@ -214,15 +214,128 @@ class DocumentConverter:
         return html_content, markdown_content
     
     @staticmethod
-    def convert_from_editor(content: str, content_type: str, output_path: str) -> bool:
-        """Convert content from editor (HTML or Markdown) back to DOCX"""
+    def convert_from_editor(content, content_type, file_path):
+        """Convert content from editor format back to original document format"""
         try:
-            if content_type.lower() == 'markdown':
-                html_content = DocumentConverter.markdown_to_html(content)
+            if file_path.endswith('.docx'):
+                return DocumentConverter._save_to_docx(content, content_type, file_path)
+            elif file_path.endswith('.html'):
+                return DocumentConverter._save_to_html(content, content_type, file_path)
+            elif file_path.endswith('.md'):
+                return DocumentConverter._save_to_markdown(content, content_type, file_path)
             else:
-                html_content = content
-            
-            return DocumentConverter.html_to_docx(html_content, output_path)
+                # For other formats, save as plain text
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    if content_type == 'html':
+                        # Convert HTML to plain text
+                        h = html2text.HTML2Text()
+                        h.ignore_links = True
+                        text_content = h.handle(content)
+                        f.write(text_content)
+                    else:
+                        f.write(content)
+                return True
         except Exception as e:
-            print(f"Error converting from editor: {e}")
+            print(f"Error converting document: {e}")
+            return False
+    
+    @staticmethod
+    def _save_to_docx(content, content_type, file_path):
+        """Save content to DOCX format"""
+        try:
+            doc = Document()
+            
+            if content_type == 'html':
+                # Parse HTML and convert to DOCX
+                soup = BeautifulSoup(content, 'html.parser')
+                
+                # Remove html and body tags if present
+                if soup.html:
+                    soup = soup.html
+                if soup.body:
+                    soup = soup.body
+                
+                for element in soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li']):
+                    text = element.get_text().strip()
+                    if not text:
+                        continue
+                    
+                    if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+                        # Add heading
+                        level = int(element.name[1])
+                        heading = doc.add_heading(text, level=level)
+                    elif element.name == 'p':
+                        # Add paragraph
+                        doc.add_paragraph(text)
+                    elif element.name in ['ul', 'ol']:
+                        # Handle lists
+                        for li in element.find_all('li'):
+                            doc.add_paragraph(li.get_text().strip(), style='List Bullet')
+            
+            elif content_type == 'markdown':
+                # Convert markdown to HTML first, then to DOCX
+                html_content = markdown2.markdown(content)
+                return DocumentConverter._save_to_docx(html_content, 'html', file_path)
+            
+            else:
+                # Plain text
+                lines = content.split('\n')
+                for line in lines:
+                    if line.strip():
+                        doc.add_paragraph(line.strip())
+                    else:
+                        doc.add_paragraph('')
+            
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            doc.save(file_path)
+            return True
+            
+        except Exception as e:
+            print(f"Error saving DOCX: {e}")
+            return False
+    
+    @staticmethod
+    def _save_to_html(content, content_type, file_path):
+        """Save content to HTML format"""
+        try:
+            if content_type == 'markdown':
+                html_content = markdown2.markdown(content)
+            elif content_type == 'html':
+                html_content = content
+            else:
+                # Plain text to HTML
+                html_content = f"<html><body>{content.replace(chr(10), '<br>')}</body></html>"
+            
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            return True
+            
+        except Exception as e:
+            print(f"Error saving HTML: {e}")
+            return False
+    
+    @staticmethod
+    def _save_to_markdown(content, content_type, file_path):
+        """Save content to Markdown format"""
+        try:
+            if content_type == 'html':
+                # Convert HTML to markdown
+                h = html2text.HTML2Text()
+                h.ignore_links = False
+                markdown_content = h.handle(content)
+            elif content_type == 'markdown':
+                markdown_content = content
+            else:
+                # Plain text (just save as is)
+                markdown_content = content
+            
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(markdown_content)
+            return True
+            
+        except Exception as e:
+            print(f"Error saving Markdown: {e}")
             return False 

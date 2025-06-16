@@ -44,9 +44,9 @@ class Backup(models.Model):
 
 
     def delete(self, using=None, keep_parents=False):
-        if self.file:
+        if self.file and os.path.exists(self.file.path):
             os.remove(self.file.path)
-        if self.media_archive:
+        if self.media_archive and os.path.exists(self.file.path):
             os.remove(self.media_archive.path)
 
         super().delete(using, keep_parents)
