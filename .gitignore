@@ -15,4 +15,4 @@ apidoc.json
 static/**
 Pipfile
 Pipfile.lock
-docker-compose.yml
+media/

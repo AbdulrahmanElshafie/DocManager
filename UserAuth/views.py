@@ -1,6 +1,7 @@
 from rest_framework.generics import CreateAPIView
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.viewsets import ModelViewSet
 from .serializers import *
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -172,3 +173,114 @@ class PasswordResetView(APIView):
             status=status.HTTP_200_OK
         )
 
+
+class UserView(APIView):
+    """
+    Get and update user details
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = UserSerializer
+    lookup_field = ('id', 'username', 'email') 
+
+    # Define possible responses
+    user_response = openapi.Response(
+        description="User details retrieved successfully.",
+        schema=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'id': openapi.Schema(type=openapi.TYPE_INTEGER, description='User ID'),
+                'username': openapi.Schema(type=openapi.TYPE_STRING, description='Username'),
+                'email': openapi.Schema(type=openapi.TYPE_STRING, description='User email'),
+                'first_name': openapi.Schema(type=openapi.TYPE_STRING, description='First name'),
+                'last_name': openapi.Schema(type=openapi.TYPE_STRING, description='Last name'),
+                'date_joined': openapi.Schema(type=openapi.TYPE_STRING, description='Date user joined'),
+                'is_active': openapi.Schema(type=openapi.TYPE_BOOLEAN, description='User active status'),
+            }
+        )
+    )
+
+    error_response = openapi.Response(
+        description="Bad Request",
+        schema=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'email': openapi.Schema(type=openapi.TYPE_STRING, description='Email validation error'),
+                'first_name': openapi.Schema(type=openapi.TYPE_STRING, description='First name validation error'),
+                'last_name': openapi.Schema(type=openapi.TYPE_STRING, description='Last name validation error'),
+            }
+        )
+    )
+
+    @swagger_auto_schema(
+        responses={
+            200: user_response,
+            401: 'Authentication credentials were not provided.',
+        },
+        operation_description="Retrieve the authenticated user's details."
+    )
+    def get(self, request):
+        """
+        Handle GET request to retrieve user details.
+        """
+        serializer = self.serializer_class(request.user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        request_body=UserSerializer,
+        responses={
+            200: user_response,
+            400: error_response,
+            401: 'Authentication credentials were not provided.',
+        },
+        operation_description="Update the authenticated user's details."
+    )
+    def put(self, request):
+        """
+        Handle PUT request to fully update user details.
+        """
+        serializer = self.serializer_class(
+            request.user, 
+            data=request.data,
+            context={'request': request}
+        )
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @swagger_auto_schema(
+        request_body=UserSerializer,
+        responses={
+            200: user_response,
+            400: error_response,
+            401: 'Authentication credentials were not provided.',
+        },
+        operation_description="Partially update the authenticated user's details."
+    )
+    def patch(self, request):
+        """
+        Handle PATCH request to partially update user details.
+        """
+        serializer = self.serializer_class(
+            request.user, 
+            data=request.data, 
+            partial=True,
+            context={'request': request}
+        )
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserListView(ModelViewSet):
+    """
+    List all users for permission management
+    """
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def list(self, request, *args, **kwargs):
+        users = User.objects.all().values('id', 'username', 'email', 'first_name', 'last_name')
+        return Response(list(users))
