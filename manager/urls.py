@@ -26,10 +26,10 @@ urlpatterns = [
         {"get": "download"}
     )),
     path('document/revision/<str:doc_id>/', RevisionView.as_view(
-        {"get": "list"}
+        {"get": "list", "post": "create"}
     )),
     path('document/revision/<str:doc_id>/<str:version_id>/', RevisionView.as_view(
-        {"get": "retrieve", "post": "create"}
+        {"get": "retrieve"}
     )),
 
     
