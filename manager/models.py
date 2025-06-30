@@ -148,7 +148,6 @@ class ShareableLink(models.Model):
     token = models.UUIDField(default=uuid4, unique=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)
-    # access_level = models.CharField(max_length=10, choices=LEVEL_CHOICES, default='read')  # Extend if needed
     is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey('auth.User', on_delete=models.CASCADE)
 
@@ -163,8 +162,17 @@ class ShareableLink(models.Model):
         from django.urls import reverse
         return reverse('shared-document-view', args=[str(self.token)])
 
+    def clean(self):
+        # Document is required
+        if not self.document:
+            raise ValidationError("Document is required for shareable links.")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"Shared link for {self.document.name}"
+        return f"Shared link for document: {self.document.name}"
 
 
 ACTIVITY_TYPES = (
@@ -309,3 +317,24 @@ class ActivityLog(models.Model):
                 base_description += f" (from folder '{metadata['old_folder']}' to '{metadata['new_folder']}')"
         
         return base_description
+
+
+class Comment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name='comments')
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    content = models.TextField()
+    attachment = models.FileField(upload_to='comment_attachments/', blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    # For nested comments (replies)
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, blank=True, null=True, related_name='replies')
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Comment'
+        verbose_name_plural = 'Comments'
+
+    def __str__(self):
+        return f"Comment by {self.user.username} on {self.document.name}"

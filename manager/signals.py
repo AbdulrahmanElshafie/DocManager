@@ -28,24 +28,31 @@ moved folder to new folder
 moved folder to root
 """
 
-@receiver(post_save, sender=Document)
+@receiver(pre_save, sender=Document)
 def notify_user_document(sender, instance, created, raw, update_fields, **kwargs):
     # new doc in folder
     # moved doc to new folder
     # give the doc the same level as the parent folder
-    users = Permission.objects.filter(folder=instance.folder).values_list('user', flat=True).distinct()
+
+
+    new_folder_users = Permission.objects.filter(folder=instance.folder).values_list('user', flat=True).distinct()
     if instance.folder:
-        for user in users:
+        for user in new_folder_users:
             Permission.objects.update_or_create(
                 user=user,
                 document=instance,
                 defaults={'level': Permission.objects.get(user=user, folder=instance.folder).level, 'folder': None}
             )
 
+    old_folder_users = Permission.objects.filter(document=instance).values_list('user', flat=True).distinct()
+    if instance.folder:
+        for user in old_folder_users:
+            Permission.objects.filter(user=user, document=instance).delete()
+
     # moved doc to root
     # remove the doc from the previous folder and remove the permission
     if not instance.folder:
-        Permission.objects.filter(user__in=users, document=instance).delete()
+        Permission.objects.filter(user__in=old_folder_users, document=instance).delete()
 
 @receiver(post_save, sender=Folder)
 def notify_user_folder(sender, instance, created, raw, update_fields, **kwargs):
