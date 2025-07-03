@@ -114,14 +114,14 @@ class FolderView(ModelViewSet, RevisionMixin):
         """
         Upload a folder as a zip file and extract its contents
         """
-        if 'zip_file' not in request.FILES:
+        if 'file' not in request.FILES:
             return Response(
                 {'error': 'No zip file provided'}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        zip_file = request.FILES['zip_file']
-        parent_folder_id = request.data.get('parent_folder_id')
+        zip_file = request.FILES['file']
+        parent_folder_id = request.data.get('parent')
         
         # Validate zip file
         if not zip_file.name.endswith('.zip'):

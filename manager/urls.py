@@ -7,11 +7,11 @@ urlpatterns = [
     path('folder/', FolderView.as_view(
         {"get": "list", "post": "create"}
     )),
-    path('folder/<str:pk>/', FolderView.as_view(
-        {"get": "retrieve", "delete": "destroy", "put": "update"}
-    )),
     path('folder/upload/', FolderView.as_view(
         {"post": "upload_folder"}
+    )),
+    path('folder/<str:pk>/', FolderView.as_view(
+        {"get": "retrieve", "delete": "destroy", "put": "update"}
     )),
     path('document/', DocumentView.as_view(
         {"get": "list", "post": "create"}
