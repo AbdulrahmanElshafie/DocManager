@@ -6,6 +6,8 @@ A comprehensive document management backend built with Django REST Framework, pr
 
 DocManager backend is a robust REST API system that powers a full-featured document management platform. It provides secure authentication, hierarchical folder organization, document processing, permission management, and comprehensive activity tracking. The system is built with scalability and security in mind, supporting multiple document formats and real-time collaboration features.
 
+> **Note**: This backend system was developed by incorporating vibe coding techniques using Cursor IDE, enabling high-quality results and rapid development in a remarkably short amount of time.
+
 ## ✨ Features
 
 ### 🔐 Authentication & User Management
@@ -331,10 +333,6 @@ EMAIL_HOST_PASSWORD=your-app-password
 - Write comprehensive tests
 - Update documentation for new features
 - Use meaningful commit messages
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## 🆘 Support
 
