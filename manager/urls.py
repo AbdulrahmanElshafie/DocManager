@@ -25,6 +25,8 @@ urlpatterns = [
     path('document/<str:pk>/download/', DocumentView.as_view(
         {"get": "download"}
     )),
+
+    # Revision endpoints
     path('document/revision/<str:doc_id>/', RevisionView.as_view(
         {"get": "list", "post": "create"}
     )),

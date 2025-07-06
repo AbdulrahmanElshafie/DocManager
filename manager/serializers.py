@@ -4,6 +4,7 @@ from django.db.models import Q
 from .models import *
 import os
 import tempfile
+from UserAuth.serializers import UserSerializer
 
 User = get_user_model()
 
@@ -40,6 +41,7 @@ class DocumentSerializer(serializers.ModelSerializer):
     file = serializers.FileField(required=False, allow_null=True)
     document_type = serializers.ChoiceField(choices=[('docx', 'DOCX'), ('csv', 'CSV'), ('pdf', 'PDF')], required=False, write_only=True)
     owner = serializers.SerializerMethodField()
+    owner_details = UserSerializer(source='owner', read_only=True)
     file_url = serializers.SerializerMethodField()
 
     def get_owner(self, obj):
@@ -55,7 +57,7 @@ class DocumentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Document
-        fields = ('id', 'name', 'folder', 'file', 'file_url', 'owner', 'document_type', 'created_at', 'updated_at')
+        fields = ('id', 'name', 'folder', 'file', 'file_url', 'owner', 'owner_details', 'document_type', 'created_at', 'updated_at')
 
     def create(self, validated_data):
         # Handle empty document creation
