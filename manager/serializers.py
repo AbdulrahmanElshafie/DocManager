@@ -4,6 +4,7 @@ from django.db.models import Q
 from .models import *
 import os
 import tempfile
+from UserAuth.serializers import UserSerializer
 
 User = get_user_model()
 
@@ -40,14 +41,23 @@ class DocumentSerializer(serializers.ModelSerializer):
     file = serializers.FileField(required=False, allow_null=True)
     document_type = serializers.ChoiceField(choices=[('docx', 'DOCX'), ('csv', 'CSV'), ('pdf', 'PDF')], required=False, write_only=True)
     owner = serializers.SerializerMethodField()
+    owner_details = UserSerializer(source='owner', read_only=True)
+    file_url = serializers.SerializerMethodField()
 
     def get_owner(self, obj):
         """Return the owner ID as an integer"""
         return obj.owner.id if obj.owner else None
 
+    def get_file_url(self, obj):
+        """Return the full URL for the file"""
+        request = self.context.get('request')
+        if obj.file and hasattr(obj.file, 'url'):
+            return request.build_absolute_uri(obj.file.url) if request else obj.file.url
+        return None
+
     class Meta:
         model = Document
-        fields = ('id', 'name', 'folder', 'file', 'owner', 'document_type', 'created_at', 'updated_at')
+        fields = ('id', 'name', 'folder', 'file', 'file_url', 'owner', 'owner_details', 'document_type', 'created_at', 'updated_at')
 
     def create(self, validated_data):
         # Handle empty document creation
@@ -125,12 +135,57 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ('id', 'username', 'email', 'first_name', 'last_name')
 
 
+class CommentSerializer(serializers.ModelSerializer):
+    user_details = UserSerializer(source='user', read_only=True)
+    replies = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Comment
+        fields = ('id', 'document', 'user', 'user_details', 'content', 'attachment', 
+                 'created_at', 'updated_at', 'parent', 'replies')
+        read_only_fields = ('id', 'created_at', 'updated_at', 'user')
+    
+    def get_replies(self, obj):
+        if obj.replies.exists():
+            return CommentSerializer(obj.replies.all(), many=True).data
+        return []
+    
+    def create(self, validated_data):
+        # Set the user from the request
+        validated_data['user'] = self.context['request'].user
+        return super().create(validated_data)
 
 
 class ShareableLinkSerializer(serializers.ModelSerializer):
+    resource_name = serializers.SerializerMethodField()
+    resource_type = serializers.SerializerMethodField()
+    url = serializers.SerializerMethodField()
+    
     class Meta:
         model = ShareableLink
-        fields = ('document', 'token', 'created_at', 'expires_at', 'is_active', 'created_by', 'id')
+        fields = ('document', 'token', 'created_at', 'expires_at', 
+                 'is_active', 'created_by', 'id', 'resource_name', 'resource_type', 'url')
+        read_only_fields = ('token', 'created_at', 'created_by', 'id', 'url')
+    
+    def get_resource_name(self, obj):
+        return obj.document.name
+    
+    def get_resource_type(self, obj):
+        return 'document'
+    
+    def get_url(self, obj):
+        from django.conf import settings
+        base_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:8080')
+        return f"{base_url}/share/{obj.token}"
+    
+    def validate(self, data):
+        # Document is required
+        document = data.get('document')
+        
+        if not document:
+            raise serializers.ValidationError("Document is required.")
+        
+        return data
 
 
 class ActivityLogSerializer(serializers.ModelSerializer):

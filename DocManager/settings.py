@@ -87,8 +87,8 @@ TEMPLATES = [
     },
 ]
 
-# WSGI_APPLICATION = 'DocManager.wsgi.application'
-ASGI_APPLICATION = 'DocManager.asgi.application'  # Add ASGI application
+WSGI_APPLICATION = 'DocManager.wsgi.application'
+# ASGI_APPLICATION = 'DocManager.asgi.application'  # Add ASGI application
 
 
 # Database
@@ -159,8 +159,8 @@ SITE_ID = 1
 
 # JWT authentication settings
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),  # Adjust as needed
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=7),  # Adjust as needed
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=14),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'ALGORITHM': 'HS256',

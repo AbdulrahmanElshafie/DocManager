@@ -2,7 +2,7 @@ from django.db.models import Q
 from django.http import FileResponse, JsonResponse, HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework.parsers import FormParser, MultiPartParser, JSONParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
@@ -13,16 +13,19 @@ from reversion.models import Version
 import os
 import tempfile
 import json
+import zipfile
 from django.utils import timezone
 from datetime import datetime
 from django.contrib.auth import get_user_model
+import reversion
+from django.core.files.base import ContentFile
 
 from .permissions import (
     HasFolderDocumentPermission, HasActivityTrackingPermission, has_permission
 )
-from .models import Folder, Document, ActivityLog, ShareableLink, ACTIVITY_TYPES, Permission
+from .models import Folder, Document, ActivityLog, ShareableLink, ACTIVITY_TYPES, Permission, Comment
 from .serializers import (
-    FolderSerializer, DocumentSerializer, ActivityLogSerializer, ShareableLinkSerializer
+    FolderSerializer, DocumentSerializer, ActivityLogSerializer, ShareableLinkSerializer, CommentSerializer
 )
 from .document_converter import DocumentConverter
 from reversion.views import RevisionMixin
@@ -33,63 +36,71 @@ class FolderView(ModelViewSet, RevisionMixin):
     queryset = Folder.objects.all()
     serializer_class = FolderSerializer
     permission_classes = [IsAuthenticated, HasFolderDocumentPermission]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
+    def get_serializer_context(self):
+        return {'request': self.request}
 
     def perform_create(self, serializer):
-        serializer.validated_data['owner'] = self.request.user
-        folder = serializer.save()
-        # Log folder creation activity
-        ActivityLog.log_activity(
-            document=None,  # For folder activities, we might need to extend the model
-            user=self.request.user,
-            activity_type='create',
-            request=self.request,
-            resource_type='folder',
-            resource_id=str(folder.id),
-            resource_name=folder.name
-        )
+        with reversion.create_revision():
+            folder = serializer.save(owner=self.request.user)
+            reversion.set_user(self.request.user)
+            reversion.set_comment(f"Created folder: {folder.name}")
+            
+            # Log folder creation activity
+            ActivityLog.log_activity(
+                document=None,
+                user=self.request.user,
+                activity_type='create',
+                request=self.request,
+                resource_type='folder',
+                resource_name=folder.name
+            )
 
     def perform_update(self, serializer):
         old_name = serializer.instance.name
         old_parent = serializer.instance.parent
-        folder = serializer.save()
         
-        # Log folder rename/move activity
-        if old_name != folder.name:
+        with reversion.create_revision():
+            folder = serializer.save()
+            reversion.set_user(self.request.user)
+            reversion.set_comment(f"Updated folder: {folder.name}")
+            
+            # Log folder update activity
+            metadata = {}
+            if old_name != folder.name:
+                metadata['old_name'] = old_name
+                metadata['new_name'] = folder.name
+            if old_parent != folder.parent:
+                metadata['old_parent'] = old_parent.name if old_parent else None
+                metadata['new_parent'] = folder.parent.name if folder.parent else None
+            
             ActivityLog.log_activity(
                 document=None,
                 user=self.request.user,
-                activity_type='rename',
+                activity_type='edit',
                 request=self.request,
                 resource_type='folder',
-                resource_id=str(folder.id),
-                old_name=old_name,
-                new_name=folder.name
-            )
-        
-        if old_parent != folder.parent:
-            ActivityLog.log_activity(
-                document=None,
-                user=self.request.user,
-                activity_type='move',
-                request=self.request,
-                resource_type='folder',
-                resource_id=str(folder.id),
-                old_folder=old_parent.name if old_parent else 'Root',
-                new_folder=folder.parent.name if folder.parent else 'Root'
+                resource_name=folder.name,
+                **metadata
             )
 
     def perform_destroy(self, instance):
-        ActivityLog.log_activity(
-            document=None,
-            user=self.request.user,
-            activity_type='delete',
-            request=self.request,
-            resource_type='folder',
-            resource_id=str(instance.id),
-            resource_name=instance.name
-        )
-        instance.delete()
+        with reversion.create_revision():
+            folder_name = instance.name
+            instance.delete()
+            reversion.set_user(self.request.user)
+            reversion.set_comment(f"Deleted folder: {folder_name}")
+            
+            # Log folder deletion activity
+            ActivityLog.log_activity(
+                document=None,
+                user=self.request.user,
+                activity_type='delete',
+                request=self.request,
+                resource_type='folder',
+                resource_name=folder_name
+            )
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset().filter(
@@ -98,12 +109,185 @@ class FolderView(ModelViewSet, RevisionMixin):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['post'])
+    def upload_folder(self, request):
+        """
+        Upload a folder as a zip file and extract its contents
+        """
+        if 'file' not in request.FILES:
+            return Response(
+                {'error': 'No zip file provided'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        zip_file = request.FILES['file']
+        parent_folder_id = request.data.get('parent')
+        
+        # Validate zip file
+        if not zip_file.name.endswith('.zip'):
+            return Response(
+                {'error': 'File must be a zip archive'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Create parent folder if specified
+            parent_folder = None
+            if parent_folder_id:
+                try:
+                    parent_folder = Folder.objects.get(id=parent_folder_id, owner=request.user)
+                except Folder.DoesNotExist:
+                    return Response(
+                        {'error': 'Parent folder not found'}, 
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+            
+            # Create main folder with zip file name (without extension)
+            folder_name = os.path.splitext(zip_file.name)[0]
+            main_folder = Folder.objects.create(
+                name=folder_name,
+                parent=parent_folder,
+                owner=request.user
+            )
+            
+            # Extract zip file
+            with tempfile.TemporaryDirectory() as temp_dir:
+                zip_path = os.path.join(temp_dir, 'upload.zip')
+                
+                # Save uploaded zip to temporary location
+                with open(zip_path, 'wb') as f:
+                    for chunk in zip_file.chunks():
+                        f.write(chunk)
+                
+                # Extract and process zip contents
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    # Get all file paths
+                    file_list = zip_ref.namelist()
+                    
+                    # Create folder structure
+                    folder_mapping = {'/': main_folder}  # Root maps to main folder
+                    
+                    # First pass: create all folders
+                    for file_path in file_list:
+                        if file_path.endswith('/'):  # It's a directory
+                            self._create_folder_structure(file_path, folder_mapping, request.user, main_folder)
+                    
+                    # Second pass: create documents
+                    for file_path in file_list:
+                        if not file_path.endswith('/'):  # It's a file
+                            self._create_document_from_zip(zip_ref, file_path, folder_mapping, request.user, main_folder)
+            
+            # Log folder upload activity
+            ActivityLog.log_activity(
+                document=None,
+                user=request.user,
+                activity_type='upload',
+                request=request,
+                resource_type='folder',
+                resource_name=main_folder.name,
+                zip_file_name=zip_file.name
+            )
+            
+            # Return the created folder
+            serializer = self.get_serializer(main_folder)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            
+        except zipfile.BadZipFile:
+            return Response(
+                {'error': 'Invalid zip file'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                {'error': f'Error processing zip file: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _create_folder_structure(self, folder_path, folder_mapping, owner, root_folder):
+        """
+        Create folder structure recursively
+        """
+        # Remove trailing slash
+        folder_path = folder_path.rstrip('/')
+        if not folder_path:
+            return
+        
+        # Split path into components
+        path_parts = folder_path.split('/')
+        current_path = ''
+        current_parent = root_folder
+        
+        for part in path_parts:
+            if not part:  # Skip empty parts
+                continue
+                
+            current_path = current_path + '/' + part if current_path else part
+            
+            if current_path not in folder_mapping:
+                # Create new folder
+                folder = Folder.objects.create(
+                    name=part,
+                    parent=current_parent,
+                    owner=owner
+                )
+                folder_mapping[current_path] = folder
+                current_parent = folder
+            else:
+                current_parent = folder_mapping[current_path]
+    
+    def _create_document_from_zip(self, zip_ref, file_path, folder_mapping, owner, root_folder):
+        """
+        Create document from zip file entry
+        """
+        # Get the folder for this file
+        folder_path = '/'.join(file_path.split('/')[:-1])
+        if folder_path and folder_path in folder_mapping:
+            parent_folder = folder_mapping[folder_path]
+        else:
+            parent_folder = root_folder
+        
+        # Get file name
+        file_name = os.path.basename(file_path)
+        
+        # Skip hidden files and system files
+        if file_name.startswith('.') or file_name.startswith('__'):
+            return
+        
+        # Check if file extension is supported
+        valid_extensions = ['.csv', '.docx', '.pdf']
+        file_ext = os.path.splitext(file_name)[1].lower()
+        if file_ext not in valid_extensions:
+            return  # Skip unsupported files
+        
+        try:
+            # Extract file content
+            file_content = zip_ref.read(file_path)
+            
+            # Create document
+            document = Document.objects.create(
+                name=file_name,
+                folder=parent_folder,
+                owner=owner
+            )
+            
+            # Save file
+            file_obj = ContentFile(file_content, name=f"{document.id}{file_ext}")
+            document.file.save(f"{document.id}{file_ext}", file_obj)
+            document.save()
+            
+        except Exception as e:
+            # Log error but continue processing other files
+            print(f"Error creating document {file_name}: {str(e)}")
+
 
 class DocumentView(ModelViewSet, RevisionMixin):
     queryset = Document.objects.all()
     serializer_class = DocumentSerializer
     permission_classes = [IsAuthenticated, HasFolderDocumentPermission]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_serializer_context(self):
+        return {'request': self.request}
 
     def perform_create(self, serializer):
         serializer.validated_data['owner'] = self.request.user
@@ -193,111 +377,8 @@ class DocumentView(ModelViewSet, RevisionMixin):
         return Response(serializer.data)
 
     @action(detail=True, methods=['get'])
-    def content(self, request, pk=None):
-        """Get document content as HTML or Markdown for editing"""
-        document = self.get_object()
-        
-        # Log document content view activity
-        ActivityLog.log_activity(
-            document=document,
-            user=request.user,
-            activity_type='view',
-            request=request,
-            action='view_content'
-        )
-        
-        if not document.file:
-            return Response({'error': 'No file associated with document'}, 
-                          status=status.HTTP_404_NOT_FOUND)
-        
-        file_path = document.file.path
-        if not os.path.exists(file_path):
-            return Response({'error': 'File not found'}, 
-                          status=status.HTTP_404_NOT_FOUND)
-        
-        # Get the requested format (default to html)
-        format_type = request.query_params.get('format', 'html').lower()
-        
-        try:
-            if document.file.name.endswith('.docx'):
-                html_content, markdown_content = DocumentConverter.convert_for_editor(file_path)
-                
-                if format_type == 'markdown':
-                    return Response({
-                        'content': markdown_content,
-                        'format': 'markdown',
-                        'original_format': 'docx'
-                    })
-                else:
-                    return Response({
-                        'content': html_content,
-                        'format': 'html',
-                        'original_format': 'docx'
-                    })
-            else:
-                # For non-DOCX files, return raw content
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                return Response({
-                    'content': content,
-                    'format': 'raw',
-                    'original_format': document.file.name.split('.')[-1].lower()
-                })
-                
-        except Exception as e:
-            return Response({'error': f'Error reading document: {str(e)}'}, 
-                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    @action(detail=True, methods=['put'])
-    def update_content(self, request, pk=None):
-        """Update document content from editor"""
-        document = self.get_object()
-        
-        content = request.data.get('content', '')
-        content_type = request.data.get('content_type', 'html')
-        
-        # Log document edit activity
-        ActivityLog.log_activity(
-            document=document,
-            user=request.user,
-            activity_type='edit',
-            request=request,
-            action='update_content',
-            content_type=content_type,
-            content_length=len(content)
-        )
-        
-        if not document.file:
-            return Response({'error': 'No file associated with document'}, 
-                          status=status.HTTP_404_NOT_FOUND)
-        
-        file_path = document.file.path
-        
-        try:
-            if document.file.name.endswith('.docx'):
-                # Convert content back to DOCX
-                success = DocumentConverter.convert_from_editor(content, content_type, file_path)
-                if not success:
-                    return Response({'error': 'Failed to convert content to DOCX'}, 
-                                  status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            else:
-                # For other file types, save content directly
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
-            
-            # Update the document's updated_at timestamp
-            document.save()
-            
-            return Response({'message': 'Document updated successfully'})
-            
-        except Exception as e:
-            return Response({'error': f'Error updating document: {str(e)}'}, 
-                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    @action(detail=True, methods=['get', 'put'])
     def annotations(self, request, pk=None):
-        """Get or update PDF annotations"""
+        """Get PDF annotations"""
         document = self.get_object()
         
         # For now, store annotations as JSON in a separate field or file
@@ -726,49 +807,145 @@ class ShareableLinkView(ModelViewSet):
     serializer_class = ShareableLinkSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_permissions(self):
+        # DRF sets self.action to the name of the handler ("retrieve_by_token")
+        if self.action == 'retrieve_by_token':
+            return [AllowAny()]
+        return [perm() for perm in self.permission_classes]
+
     def perform_create(self, serializer):
         link = serializer.save(created_by=self.request.user)
         
-        # Log share activity
-        if link.document:
+        # Log share activity for document only
+        ActivityLog.log_activity(
+            document=link.document,
+            user=self.request.user,
+            activity_type='share',
+            request=self.request,
+            share_token=str(link.token),
+            expires_at=link.expires_at.isoformat() if link.expires_at else None
+        )
+    
+    @action(detail=False, methods=["get"])
+    def retrieve_by_token(self, request, token):
+        """Retrieve shared document by token for public access"""
+        try:
+            link = get_object_or_404(ShareableLink, token=token, is_active=True)
+            
+            # Check if link is still valid
+            if not link.is_valid():
+                return Response({'error': 'Link has expired or is inactive'}, 
+                              status=status.HTTP_403_FORBIDDEN)
+            
+            # Log view activity (anonymous access allowed for shared links)
             ActivityLog.log_activity(
                 document=link.document,
-                user=self.request.user,
-                activity_type='share',
-                request=self.request,
-                share_token=str(link.token),
-                expires_at=link.expires_at.isoformat() if link.expires_at else None
+                user=request.user if request.user.is_authenticated else None,
+                activity_type='view',
+                request=request,
+                share_token=str(link.token)
             )
+            
+            # Return file if document has one, otherwise document data
+            if link.document.file and os.path.exists(link.document.file.path):
+                return FileResponse(
+                    open(link.document.file.path, 'rb'),
+                    as_attachment=True,
+                    filename=link.document.name
+                )
+            else:
+                # Fallback to document data if no file
+                from .serializers import DocumentSerializer
+                return Response(DocumentSerializer(link.document).data)
+            
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-    def get(self, request, token):
-        link = get_object_or_404(ShareableLink, token=token, is_active=True, expires_at__gte=timezone.now())
 
-        if not link.is_valid():
-            return Response(
-                {"error": "Invalid or expired shareable link."},
-                status=status.HTTP_404_NOT_FOUND)
-
-        document = link.document
-        if not document:
-            return Response(
-                {"error": "Invalid shareable link."},
-                status=status.HTTP_404_NOT_FOUND)
-
-        # Log shared document access
+class CommentView(ModelViewSet):
+    queryset = Comment.objects.all()
+    serializer_class = CommentSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        # Filter comments based on document permissions
+        user = self.request.user
+        # Get documents the user has access to
+        accessible_documents = Document.objects.filter(
+            Q(owner=user) |
+            Q(id__in=Permission.objects.filter(user=user, document__isnull=False).values('document'))
+        ).distinct()
+        
+        # Return comments for accessible documents only
+        return Comment.objects.filter(document__in=accessible_documents)
+    
+    def perform_create(self, serializer):
+        comment = serializer.save(user=self.request.user)
+        
+        # Log comment creation activity
+        ActivityLog.log_activity(
+            document=comment.document,
+            user=self.request.user,
+            activity_type='create',
+            request=self.request,
+            resource_type='comment',
+            resource_name=f"Comment on {comment.document.name}"
+        )
+    
+    def perform_update(self, serializer):
+        comment = serializer.save()
+        
+        # Log comment update activity
+        ActivityLog.log_activity(
+            document=comment.document,
+            user=self.request.user,
+            activity_type='edit',
+            request=self.request,
+            resource_type='comment',
+            resource_name=f"Comment on {comment.document.name}"
+        )
+    
+    def perform_destroy(self, instance):
+        document = instance.document
+        comment_info = f"Comment on {document.name}"
+        
+        # Log comment deletion activity
         ActivityLog.log_activity(
             document=document,
-            user=request.user if request.user.is_authenticated else None,
-            activity_type='view',
-            request=request,
-            action='shared_link_access',
-            share_token=str(link.token)
+            user=self.request.user,
+            activity_type='delete',
+            request=self.request,
+            resource_type='comment',
+            resource_name=comment_info
         )
-
-        file_path = document.file.path
-        if not os.path.exists(file_path):
+        
+        instance.delete()
+    
+    @action(detail=False, methods=['get'])
+    def document_comments(self, request):
+        """
+        Get all comments for a specific document
+        """
+        document_id = request.query_params.get('document_id')
+        if not document_id:
             return Response(
-                {"error": "File not found."},
+                {'error': 'document_id parameter is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Check if user has access to the document
+            document = Document.objects.get(id=document_id)
+            if not has_permission(request.user, document=document, required_level='read'):
+                raise PermissionDenied("You don't have permission to view comments for this document")
+            
+            # Get top-level comments for the document (comments without parent)
+            comments = Comment.objects.filter(document=document, parent__isnull=True)
+            serializer = self.get_serializer(comments, many=True)
+            return Response(serializer.data)
+            
+        except Document.DoesNotExist:
+            return Response(
+                {'error': 'Document not found'}, 
                 status=status.HTTP_404_NOT_FOUND
             )
-
-        return FileResponse(open(file_path, 'rb'), as_attachment=True)

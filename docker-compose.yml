@@ -6,7 +6,7 @@ services:
       #dockerfile: Dockerfile
 #    container_name: django-backend
 #    command: bash -c "python manage.py migrate && gunicorn --bind 0.0.0.0:8000 DocumentationBot.asgi:application  -k uvicorn.workers.UvicornWorker -w 2 --log-level info"
-    command: bash -c "python manage.py migrate && daphne -b 0.0.0.0 -p 8000 DocManager.asgi:application"
+    command: bash -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
     volumes:
       - .:/app
     ports:

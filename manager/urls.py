@@ -1,11 +1,14 @@
 from django.urls import path
 from .views import (
-    FolderView, DocumentView, RevisionView, ActivityLogView, ShareableLinkView
+    FolderView, DocumentView, RevisionView, ActivityLogView, ShareableLinkView, CommentView
 )
 
 urlpatterns = [
     path('folder/', FolderView.as_view(
         {"get": "list", "post": "create"}
+    )),
+    path('folder/upload/', FolderView.as_view(
+        {"post": "upload_folder"}
     )),
     path('folder/<str:pk>/', FolderView.as_view(
         {"get": "retrieve", "delete": "destroy", "put": "update"}
@@ -16,15 +19,14 @@ urlpatterns = [
     path('document/<str:pk>/', DocumentView.as_view(
         {"get": "retrieve", "delete": "destroy", "put": "update"}
     )),
-    path('document/<str:pk>/content/', DocumentView.as_view(
-        {"get": "content", "put": "update_content"}
-    )),
     path('document/<str:pk>/annotations/', DocumentView.as_view(
-        {"get": "annotations", "put": "annotations"}
+        {"get": "annotations"}
     )),
     path('document/<str:pk>/download/', DocumentView.as_view(
         {"get": "download"}
     )),
+
+    # Revision endpoints
     path('document/revision/<str:doc_id>/', RevisionView.as_view(
         {"get": "list", "post": "create"}
     )),
@@ -54,12 +56,23 @@ urlpatterns = [
     )),
     
     path('share/<str:token>/', ShareableLinkView.as_view(
-        {"get": "retrieve"}
+        {"get": "retrieve_by_token"}
     )),
     path('share/', ShareableLinkView.as_view(
         {"post": "create", "get": "list"}
     )),
     path('share/<str:pk>/', ShareableLinkView.as_view(
         {"delete": "destroy", "put": "update"}
+    )),
+    
+    # Comment endpoints
+    path('comment/', CommentView.as_view(
+        {"get": "list", "post": "create"}
+    )),
+    path('comment/<str:pk>/', CommentView.as_view(
+        {"get": "retrieve", "delete": "destroy", "put": "update"}
+    )),
+    path('comment/document/', CommentView.as_view(
+        {"get": "document_comments"}
     )),
 ]
