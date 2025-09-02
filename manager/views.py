@@ -460,6 +460,72 @@ class DocumentView(ModelViewSet, RevisionMixin):
             filename=document.name + os.path.splitext(document.file.name)[1]
         )
 
+    @action(detail=True, methods=['get'])
+    def convert_docx_to_pdf(self, request, pk=None):
+        import logging
+        import traceback
+
+        logger = logging.getLogger(__name__)
+        """Convert DOCX document to PDF and return the PDF file"""
+        document = self.get_object()
+        
+        # Check if document is DOCX
+        if not document.file or not document.file.name.lower().endswith('.docx'):
+            return Response(
+                {'error': 'Document is not a DOCX file'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Log conversion activity
+        ActivityLog.log_activity(
+            document=document,
+            user=request.user,
+            activity_type='view',
+            request=request,
+            action='convert_docx_to_pdf'
+        )
+        
+        if not document.file or not os.path.exists(document.file.path):
+            return Response({'error': 'File not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        try:
+            # Create temporary PDF file
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_pdf:
+                temp_pdf_path = temp_pdf.name
+            
+            # Convert DOCX to PDF
+            success = DocumentConverter.docx_to_pdf(document.file.path, temp_pdf_path)
+            
+            if not success:
+                os.unlink(temp_pdf_path)
+                return Response(
+                    {'error': 'Failed to convert document to PDF'}, 
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            # Read the converted PDF
+            with open(temp_pdf_path, 'rb') as f:
+                pdf_content = f.read()
+            
+            # Clean up temporary file
+            os.unlink(temp_pdf_path)
+            
+            # Return PDF file response
+            response = HttpResponse(pdf_content, content_type='application/pdf')
+            response['Content-Disposition'] = f'inline; filename="{document.name.replace(".docx", ".pdf")}"'
+            response['Content-Length'] = len(pdf_content)
+            
+            return response
+            
+        except Exception as e:
+            logger.exception("Error converting DOCX to PDF")  # <-- prints full traceback
+            print(f"Error converting DOCX to PDF: {e}")       # <-- still goes to stdout
+            traceback.print_exc() 
+            return Response(
+                {'error': f'Conversion failed: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class ActivityLogView(ModelViewSet):
     queryset = ActivityLog.objects.all()
