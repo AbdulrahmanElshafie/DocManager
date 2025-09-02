@@ -72,11 +72,9 @@ class DocxToPdfConversionTest(TestCase):
             self.assertTrue(pdf_bytes.startswith(b'%PDF-'))
             
         except RuntimeError as e:
-            # If LibreOffice is not available, skip the test
-            if 'not available' in str(e) or 'not found' in str(e):
-                self.skipTest(f"LibreOffice not available for testing: {e}")
-            else:
-                raise
+            # If LibreOffice is not available, the fallback should still work
+            # This test should not be skipped as we have a working fallback
+            self.fail(f"Conversion failed even with fallback: {e}")
     
     def test_convert_docx_file_to_pdf(self):
         """Test converting DOCX file path to PDF"""
@@ -97,11 +95,8 @@ class DocxToPdfConversionTest(TestCase):
                 self.assertTrue(pdf_bytes.startswith(b'%PDF-'))
                 
             except RuntimeError as e:
-                # If LibreOffice is not available, skip the test
-                if 'not available' in str(e) or 'not found' in str(e):
-                    self.skipTest(f"LibreOffice not available for testing: {e}")
-                else:
-                    raise
+                # Should work with fallback
+                self.fail(f"Conversion failed even with fallback: {e}")
             finally:
                 # Clean up
                 os.unlink(temp_file.name)
@@ -176,37 +171,20 @@ class DocumentPdfConversionAPITest(TestCase):
             owner=self.user
         )
         
-        try:
-            # Make request to convert to PDF
-            url = f'/api/manager/document/{document.id}/convert/pdf/'
-            response = self.client.get(url)
-            
-            # Check response
-            if response.status_code == 500:
-                # LibreOffice might not be available
-                response_data = response.json() if hasattr(response, 'json') else {}
-                error_msg = response_data.get('error', str(response.content))
-                if 'not available' in error_msg or 'not found' in error_msg:
-                    self.skipTest(f"LibreOffice not available for testing: {error_msg}")
-                else:
-                    self.fail(f"Unexpected server error: {error_msg}")
-            
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response['Content-Type'], 'application/pdf')
-            self.assertIn('inline; filename="Test Document.pdf"', response['Content-Disposition'])
-            
-            # Check PDF content
-            pdf_content = response.content
-            self.assertIsInstance(pdf_content, bytes)
-            self.assertGreater(len(pdf_content), 0)
-            self.assertTrue(pdf_content.startswith(b'%PDF-'))
-            
-        except Exception as e:
-            # If there's any setup issue, provide clear error
-            if 'LibreOffice' in str(e) or 'soffice' in str(e):
-                self.skipTest(f"LibreOffice not available for testing: {e}")
-            else:
-                raise
+        # Make request to convert to PDF
+        url = f'/api/manager/document/{document.id}/convert/pdf/'
+        response = self.client.get(url)
+        
+        # Check response - should work with our fallback
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertIn('inline; filename="Test Document.pdf"', response['Content-Disposition'])
+        
+        # Check PDF content
+        pdf_content = response.content
+        self.assertIsInstance(pdf_content, bytes)
+        self.assertGreater(len(pdf_content), 0)
+        self.assertTrue(pdf_content.startswith(b'%PDF-'))
     
     def test_convert_non_docx_document_returns_error(self):
         """Test that non-DOCX documents return appropriate error"""

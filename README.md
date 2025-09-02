@@ -60,6 +60,7 @@ DocManager backend is a robust REST API system that powers a full-featured docum
 
 ### 📄 Document Processing
 - **Format Conversion**: DOCX to HTML and HTML to DOCX conversion
+- **PDF Conversion**: On-demand DOCX to PDF conversion via REST API
 - **Markdown Support**: Markdown to HTML conversion
 - **Document Parsing**: Extract and process document content
 - **Content Extraction**: Text extraction from various document formats
@@ -133,6 +134,10 @@ DocManager backend is a robust REST API system that powers a full-featured docum
 - **markdown2 2.5.1**: Markdown processing
 - **html2text 2024.2.26**: HTML to text conversion
 - **beautifulsoup4 4.12.3**: HTML parsing and manipulation
+- **fpdf2 2.8.4**: PDF generation library
+- **reportlab 4.4.3**: Advanced PDF generation
+- **libreoffice-convert 1.0**: LibreOffice-based document conversion
+- **docx2pdf 0.1.8**: Alternative DOCX to PDF conversion
 
 ### Version Control & Logging
 - **django-reversion 5.1.0**: Model versioning and revision tracking
@@ -260,6 +265,7 @@ backend/
 - `GET/POST /api/manager/document/` - List/create documents
 - `GET/PUT/DELETE /api/manager/document/{id}/` - Document operations
 - `GET /api/manager/document/{id}/download/` - Download document
+- `GET /api/manager/document/{id}/convert/pdf/` - Convert DOCX to PDF on-demand
 - `GET /api/manager/folder/` - Folder management
 - `POST /api/manager/folder/upload/` - Bulk folder upload
 
