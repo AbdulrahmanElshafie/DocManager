@@ -460,6 +460,64 @@ class DocumentView(ModelViewSet, RevisionMixin):
             filename=document.name + os.path.splitext(document.file.name)[1]
         )
 
+    @action(detail=True, methods=['get'], url_path='convert/pdf')
+    def convert_to_pdf(self, request, pk=None):
+        """Convert DOCX document to PDF and return PDF bytes"""
+        from .utils.convert_docx_to_pdf import convert_docx_to_pdf
+        
+        document = self.get_object()
+        
+        # Validate that the document exists and has a file
+        if not document.file or not os.path.exists(document.file.path):
+            return Response({'error': 'File not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Validate that the file is a DOCX file
+        file_extension = os.path.splitext(document.file.name)[1].lower()
+        if file_extension != '.docx':
+            return Response(
+                {'error': 'File is not a DOCX document. Only DOCX files can be converted to PDF.'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Convert DOCX to PDF
+            pdf_bytes = convert_docx_to_pdf(document.file.path)
+            
+            # Log document conversion activity
+            ActivityLog.log_activity(
+                document=document,
+                user=request.user,
+                activity_type='view',  # Using 'view' as closest existing activity type
+                request=request,
+                file_type='pdf',
+                metadata={'conversion': 'docx_to_pdf'}
+            )
+            
+            # Create response with PDF content
+            response = HttpResponse(pdf_bytes, content_type='application/pdf')
+            
+            # Set PDF filename based on document name
+            pdf_filename = f"{document.name}.pdf"
+            response['Content-Disposition'] = f'inline; filename="{pdf_filename}"'
+            
+            return response
+            
+        except ValueError as e:
+            return Response(
+                {'error': f'Invalid file: {str(e)}'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except RuntimeError as e:
+            return Response(
+                {'error': f'Conversion failed: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        except Exception as e:
+            return Response(
+                {'error': f'Unexpected error during conversion: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class ActivityLogView(ModelViewSet):
     queryset = ActivityLog.objects.all()
