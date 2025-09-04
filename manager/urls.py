@@ -25,6 +25,9 @@ urlpatterns = [
     path('document/<str:pk>/download/', DocumentView.as_view(
         {"get": "download"}
     )),
+    path('document/<str:pk>/convert_docx_to_pdf/', DocumentView.as_view(
+        {"get": "convert_docx_to_pdf"}
+    )),
 
     # Revision endpoints
     path('document/revision/<str:doc_id>/', RevisionView.as_view(

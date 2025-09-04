@@ -1,14 +1,12 @@
 import os
+import shutil
+import subprocess
 import tempfile
-from io import BytesIO
 from docx import Document
-from docx.shared import Inches
-from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 import markdown2
 import html2text
 from bs4 import BeautifulSoup
-import re
-from typing import Tuple, Union
+from typing import Tuple
 
 
 class DocumentConverter:
@@ -339,3 +337,58 @@ class DocumentConverter:
         except Exception as e:
             print(f"Error saving Markdown: {e}")
             return False 
+
+    @staticmethod
+    def docx_to_pdf(docx_file_path: str, pdf_output_path: str) -> bool:
+        """Convert a DOCX file to PDF format"""
+        try:
+            # Create a temporary directory for LibreOffice output
+            with tempfile.TemporaryDirectory() as tmpdir:
+                subprocess.run([
+                    "soffice", "--headless", 
+                    "--convert-to", 'pdf:writer_pdf_Export:{"TrackChanges":false}',
+                    docx_file_path,
+                    "--outdir", tmpdir
+                ], check=True)
+
+                # Get generated PDF name (LibreOffice keeps original basename)
+                base_name = os.path.splitext(os.path.basename(docx_file_path))[0]
+                generated_pdf = os.path.join(tmpdir, f"{base_name}.pdf")
+
+                if not os.path.exists(generated_pdf):
+                    return False
+
+                # Move generated PDF to requested output path
+                shutil.move(generated_pdf, pdf_output_path)
+                
+            return True
+            
+        except Exception as e:
+            print(f"Error converting DOCX to PDF: {e}")
+            return False
+    
+    @staticmethod
+    def _apply_docx_formatting_to_html(text: str, paragraph) -> str:
+        """Convert DOCX paragraph formatting to HTML for PDF generation"""
+        try:
+            formatted_parts = []
+            
+            for run in paragraph.runs:
+                run_text = run.text
+                if not run_text:
+                    continue
+                
+                # Apply formatting
+                if run.bold:
+                    run_text = f'<b>{run_text}</b>'
+                if run.italic:
+                    run_text = f'<i>{run_text}</i>'
+                if run.underline:
+                    run_text = f'<u>{run_text}</u>'
+                
+                formatted_parts.append(run_text)
+            
+            return ''.join(formatted_parts) if formatted_parts else text
+            
+        except:
+            return text 
